@@ -12,6 +12,8 @@ export const DEFAULT_NOTIFICATION_TEXTS: Required<NotificationTexts> = {
   downloadProgress: 'Downloading... {progress}%',
   downloadPaused: 'Paused',
   downloadFinished: 'Download complete',
+  downloadFinishedTitle: '{title}',
+  downloadFinishedDescription: 'Download complete',
   groupTitle: 'Downloads',
   groupText: (count: number) => `${count} download${count !== 1 ? 's' : ''} in progress`,
 }
@@ -28,6 +30,7 @@ interface ConfigState {
   maxParallelDownloads: number
   allowsCellularAccess: boolean
   showNotificationsEnabled: boolean
+  forceDownloadManager: boolean
   notificationsGrouping: NotificationsGroupingConfig & { mode: NotificationGroupingMode }
 }
 
@@ -40,6 +43,7 @@ export const config: ConfigState = {
   maxParallelDownloads: DEFAULT_MAX_PARALLEL_DOWNLOADS,
   allowsCellularAccess: DEFAULT_ALLOWS_CELLULAR_ACCESS,
   showNotificationsEnabled: false,
+  forceDownloadManager: false,
   notificationsGrouping: {
     enabled: false,
     mode: 'individual',
@@ -69,6 +73,10 @@ export function getNotificationTextsForNative (): Record<string, string> {
     downloadProgress: texts.downloadProgress ?? DEFAULT_NOTIFICATION_TEXTS.downloadProgress,
     downloadPaused: texts.downloadPaused ?? DEFAULT_NOTIFICATION_TEXTS.downloadPaused,
     downloadFinished: texts.downloadFinished ?? DEFAULT_NOTIFICATION_TEXTS.downloadFinished,
+    downloadFinishedTitle:
+      texts.downloadFinishedTitle ?? DEFAULT_NOTIFICATION_TEXTS.downloadFinishedTitle,
+    downloadFinishedDescription:
+      texts.downloadFinishedDescription ?? DEFAULT_NOTIFICATION_TEXTS.downloadFinishedDescription,
     groupTitle: texts.groupTitle ?? DEFAULT_NOTIFICATION_TEXTS.groupTitle,
     // For native side, we send a pattern with {count} placeholder
     groupText: typeof texts.groupText === 'function'

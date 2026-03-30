@@ -21,6 +21,10 @@ export interface NotificationTexts {
   downloadPaused?: string
   /** Text shown when download is finished (default: "Download complete") */
   downloadFinished?: string
+  /** Title for completion notification shown after background download finishes */
+  downloadFinishedTitle?: string
+  /** Description for completion notification shown after background download finishes */
+  downloadFinishedDescription?: string
   /** Title for group summary notification (default: "Downloads") */
   groupTitle?: string
   /** Text pattern for group summary. Use {count} for number of downloads.
@@ -59,6 +63,8 @@ export interface Config {
   showNotificationsEnabled?: boolean
   /** Configuration for notifications grouping on Android */
   notificationsGrouping?: NotificationsGroupingConfig
+  /** Force Android to use DownloadManager path instead of resumable/UIDT path */
+  forceDownloadManager?: boolean
 }
 
 export type SetConfig = (config: Partial<Config>) => void

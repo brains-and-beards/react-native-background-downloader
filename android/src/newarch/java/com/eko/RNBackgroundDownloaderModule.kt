@@ -90,6 +90,10 @@ class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
         impl.setAllowsCellularAccess(allows)
     }
 
+    override fun setForceDownloadManager(enabled: Boolean) {
+        impl.setForceDownloadManager(enabled)
+    }
+
     override fun setNotificationGroupingConfig(config: com.facebook.react.bridge.ReadableMap?) {
         if (config != null) {
             impl.setNotificationGroupingConfig(config)

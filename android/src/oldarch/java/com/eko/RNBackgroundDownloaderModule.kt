@@ -102,6 +102,11 @@ class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
+    fun setForceDownloadManager(enabled: Boolean) {
+        impl.setForceDownloadManager(enabled)
+    }
+
+    @ReactMethod
     fun setNotificationGroupingConfig(config: ReadableMap) {
         impl.setNotificationGroupingConfig(config)
     }
