@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -66,10 +67,31 @@ class DownloadCompletionNotificationReceiver : BroadcastReceiver() {
       "Download complete"
     }
 
-    val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
-      ?.apply {
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    val completionNotificationLink = metadata.optString("completionNotificationLink").ifEmpty {
+      null
+    }
+
+    val launchIntent = completionNotificationLink
+      ?.let { link ->
+        Intent(Intent.ACTION_VIEW, Uri.parse(link)).apply {
+          `package` = context.packageName
+          addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK or
+              Intent.FLAG_ACTIVITY_SINGLE_TOP or
+              Intent.FLAG_ACTIVITY_CLEAR_TOP
+          )
+        }.takeIf { deepLinkIntent ->
+          deepLinkIntent.resolveActivity(context.packageManager) != null
+        }
       }
+      ?: context.packageManager.getLaunchIntentForPackage(context.packageName)
+        ?.apply {
+          addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK or
+              Intent.FLAG_ACTIVITY_SINGLE_TOP or
+              Intent.FLAG_ACTIVITY_CLEAR_TOP
+          )
+        }
 
     val pendingIntent = launchIntent?.let {
       PendingIntent.getActivity(
@@ -87,7 +109,7 @@ class DownloadCompletionNotificationReceiver : BroadcastReceiver() {
       .setStyle(NotificationCompat.BigTextStyle().bigText(description))
       .setPriority(NotificationCompat.PRIORITY_HIGH)
       .setDefaults(NotificationCompat.DEFAULT_ALL)
-      .setAutoCancel(false)
+      .setAutoCancel(true)
       .setOngoing(false)
       .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
       .setCategory(NotificationCompat.CATEGORY_RECOMMENDATION)
