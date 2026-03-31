@@ -372,6 +372,7 @@ export function setConfig ({
   allowsCellularAccess,
   showNotificationsEnabled,
   notificationsGrouping,
+  forceDownloadManager,
 }: Config) {
   config.headers = headers
 
@@ -398,6 +399,9 @@ export function setConfig ({
   if (showNotificationsEnabled !== undefined)
     config.showNotificationsEnabled = showNotificationsEnabled
 
+  if (forceDownloadManager !== undefined)
+    config.forceDownloadManager = forceDownloadManager
+
   // Update notification grouping config
   if (notificationsGrouping !== undefined)
     config.notificationsGrouping = {
@@ -419,6 +423,7 @@ export function setConfig ({
       setMaxParallelDownloads?: (max: number) => void
       setAllowsCellularAccess?: (allows: boolean) => void
       setNotificationGroupingConfig?: (config: { enabled: boolean, showNotificationsEnabled: boolean, mode: string, texts: Record<string, string> }) => void
+      setForceDownloadManager?: (enabled: boolean) => void
     }
     if (nativeModule.setLogsEnabled)
       nativeModule.setLogsEnabled(isLogsEnabled)
@@ -435,6 +440,8 @@ export function setConfig ({
         mode: config.notificationsGrouping.mode,
         texts: getNotificationTextsForNative(),
       })
+    if (Platform.OS === 'android' && nativeModule.setForceDownloadManager && forceDownloadManager !== undefined)
+      nativeModule.setForceDownloadManager(config.forceDownloadManager)
   } catch {
     // Ignore if native module is not available yet
   }

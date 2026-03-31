@@ -11,6 +11,15 @@
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
   <application>
+    <receiver
+      android:name=".DownloadCompletionNotificationReceiver"
+      android:enabled="true"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
+      </intent-filter>
+    </receiver>
+
     <!-- Foreground service for background downloads (Android < 14) -->
     <service
       android:name=".ResumableDownloadService"
