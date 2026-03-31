@@ -53,6 +53,7 @@
     "bump": "npm version patch",
     "lint": "eslint .",
     "typecheck": "tsc src/*.ts --noEmit --strict --skipLibCheck",
+    "prepare": "npm run build-plugin",
     "prepublishOnly": "npm run build-plugin && npm run typecheck && jest && npm run lint",
     "build-plugin": "tsc plugin/src/index.ts --outDir plugin/build --target ES2018 --module commonjs --declaration --esModuleInterop --strict --skipLibCheck",
     "publish": "npm publish",
