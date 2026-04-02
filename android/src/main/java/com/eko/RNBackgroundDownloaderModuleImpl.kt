@@ -389,39 +389,49 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         val config = downloadIdToConfig[downloadId]
 
         if (config != null) {
-          val downloadStatus = downloader.checkDownloadStatus(downloadId)
-          val status = downloadStatus.getInt("status")
-          val localUri = downloadStatus.getString("localUri")
+          // Use goAsync() to allow background processing without blocking the main thread.
+          val pendingResult = goAsync()
+          Thread {
+            try {
+              val downloadStatus = downloader.checkDownloadStatus(downloadId)
+              val status = downloadStatus.getInt("status")
+              val localUri = downloadStatus.getString("localUri")
 
-          stopTaskProgress(config.id)
+              stopTaskProgress(config.id)
 
-          synchronized(sharedLock) {
-            // Drop any buffered progress that slipped past stopTaskProgress's clearPendingReport
-            // (the polling thread may have re-added it between clearPendingReport and this lock)
-            progressReporter.clearPendingReport(config.id)
-            when (status) {
-              DownloadManager.STATUS_SUCCESSFUL -> {
-                onSuccessfulDownload(config, downloadStatus)
-              }
-              DownloadManager.STATUS_FAILED -> {
-                onFailedDownload(config, downloadStatus)
-              }
-            }
+              synchronized(sharedLock) {
+                // Drop any buffered progress that slipped past stopTaskProgress's clearPendingReport
+                // (the polling thread may have re-added it between clearPendingReport and this lock)
+                progressReporter.clearPendingReport(config.id)
+                when (status) {
+                  DownloadManager.STATUS_SUCCESSFUL -> {
+                    onSuccessfulDownload(config, downloadStatus)
+                  }
+                  DownloadManager.STATUS_FAILED -> {
+                    onFailedDownload(config, downloadStatus)
+                  }
+                }
 
-            if (localUri != null) {
-              // Prevent memory leaks from MediaScanner.
-              // Download successful, clean task after media scanning.
-              val paths = arrayOf(localUri)
-              MediaScannerConnection.scanFile(context, paths, null) { _, _ ->
-                synchronized(sharedLock) {
-                  cleanupDownloadState(config.id, downloadId)
+                if (localUri != null) {
+                  // Prevent memory leaks from MediaScanner.
+                  // Download successful, clean task after media scanning.
+                  val paths = arrayOf(localUri)
+                  MediaScannerConnection.scanFile(context, paths, null) { _, _ ->
+                    synchronized(sharedLock) {
+                      cleanupDownloadState(config.id, downloadId)
+                    }
+                  }
+                } else {
+                  // Download failed, clean task.
+                  stopTask(config.id)
                 }
               }
-            } else {
-              // Download failed, clean task.
-              stopTask(config.id)
+            } catch (e: Exception) {
+              logE(NAME, "Error handling download complete broadcast: ${e.message}")
+            } finally {
+              pendingResult.finish()
             }
-          }
+          }.start()
         }
       }
     }
