@@ -3,6 +3,8 @@
 #import "RNBGDUploadTaskConfig.h"
 #import <MMKV/MMKV.h>
 #import <React/RCTBridge.h>
+#import <UIKit/UIKit.h>
+#import <UserNotifications/UserNotifications.h>
 
 #ifdef RCT_NEW_ARCH_ENABLED
 #import <RNBackgroundDownloaderSpec/RNBackgroundDownloaderSpec.h>
@@ -37,6 +39,115 @@ static const NSTimeInterval kCompletionHandlerTimeout = 30.0; // Timeout for com
 #endif
 
 static CompletionHandler storedCompletionHandler;
+static NSString *const kRNBGDCompletionNotificationMarkerKey = @"rnbgdCompletionNotification";
+static NSString *const kRNBGDCompletionNotificationLinkKey = @"completionNotificationLink";
+static NSString *const kRNBGDCompletionNotificationTaskIdKey = @"taskId";
+
+@interface RNBGDNotificationCenterDelegate : NSObject <UNUserNotificationCenterDelegate>
+
+@property (nonatomic, weak, nullable) id<UNUserNotificationCenterDelegate> originalDelegate;
+
++ (instancetype)sharedInstance;
+- (void)observe;
+
+@end
+
+@implementation RNBGDNotificationCenterDelegate {
+    struct {
+        unsigned int willPresentNotification : 1;
+        unsigned int didReceiveNotificationResponse : 1;
+    } originalDelegateRespondsTo;
+}
+
++ (instancetype)sharedInstance {
+    static dispatch_once_t onceToken;
+    static RNBGDNotificationCenterDelegate *sharedInstance;
+    dispatch_once(&onceToken, ^{
+        sharedInstance = [[RNBGDNotificationCenterDelegate alloc] init];
+    });
+    return sharedInstance;
+}
+
+- (void)observe {
+    static dispatch_once_t onceToken;
+    __weak RNBGDNotificationCenterDelegate *weakSelf = self;
+    dispatch_once(&onceToken, ^{
+        RNBGDNotificationCenterDelegate *strongSelf = weakSelf;
+        UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
+        if (center.delegate != nil) {
+            strongSelf.originalDelegate = center.delegate;
+            strongSelf->originalDelegateRespondsTo.willPresentNotification =
+                (unsigned int)[center.delegate respondsToSelector:@selector(userNotificationCenter:willPresentNotification:withCompletionHandler:)];
+            strongSelf->originalDelegateRespondsTo.didReceiveNotificationResponse =
+                (unsigned int)[center.delegate respondsToSelector:@selector(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:)];
+        }
+        center.delegate = strongSelf;
+    });
+}
+
+- (BOOL)isRNBGDNotification:(UNNotification *)notification {
+    id marker = notification.request.content.userInfo[kRNBGDCompletionNotificationMarkerKey];
+    return [marker isKindOfClass:[NSNumber class]] ? [marker boolValue] : NO;
+}
+
+- (void)openCompletionLinkFromResponse:(UNNotificationResponse *)response {
+    NSString *link = response.notification.request.content.userInfo[kRNBGDCompletionNotificationLinkKey];
+    if (![link isKindOfClass:[NSString class]] || link.length == 0) {
+        return;
+    }
+
+    NSURL *url = [NSURL URLWithString:link];
+    if (url == nil) {
+        return;
+    }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIApplication *application = UIApplication.sharedApplication;
+        [application openURL:url options:@{} completionHandler:nil];
+    });
+}
+
+- (void)userNotificationCenter:(UNUserNotificationCenter *)center
+       willPresentNotification:(UNNotification *)notification
+         withCompletionHandler:(void (^)(UNNotificationPresentationOptions options))completionHandler {
+    if ([self isRNBGDNotification:notification]) {
+        UNNotificationPresentationOptions options = UNNotificationPresentationOptionBadge | UNNotificationPresentationOptionSound;
+        if (@available(iOS 14.0, *)) {
+            options |= UNNotificationPresentationOptionBanner | UNNotificationPresentationOptionList;
+        } else {
+            options |= UNNotificationPresentationOptionAlert;
+        }
+        completionHandler(options);
+        return;
+    }
+
+    if (self.originalDelegate != nil && originalDelegateRespondsTo.willPresentNotification) {
+        [self.originalDelegate userNotificationCenter:center
+                              willPresentNotification:notification
+                                withCompletionHandler:completionHandler];
+    } else {
+        completionHandler(UNNotificationPresentationOptionNone);
+    }
+}
+
+- (void)userNotificationCenter:(UNUserNotificationCenter *)center
+    didReceiveNotificationResponse:(UNNotificationResponse *)response
+             withCompletionHandler:(void (^)(void))completionHandler {
+    if ([self isRNBGDNotification:response.notification] &&
+        [response.actionIdentifier isEqualToString:UNNotificationDefaultActionIdentifier]) {
+        [self openCompletionLinkFromResponse:response];
+    }
+
+    if (self.originalDelegate != nil && originalDelegateRespondsTo.didReceiveNotificationResponse) {
+        [self.originalDelegate userNotificationCenter:center
+                   didReceiveNotificationResponse:response
+                            withCompletionHandler:completionHandler];
+    } else {
+        completionHandler();
+    }
+}
+
+@end
 
 @implementation RNBackgroundDownloader {
     MMKV *mmkv;
@@ -202,6 +313,7 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
     self = [super initWithDisabledObservation];
 #endif
     if (self) {
+        [[RNBGDNotificationCenterDelegate sharedInstance] observe];
         [MMKV initializeMMKV:nil];
         mmkv = [MMKV mmkvWithID:@"RNBackgroundDownloader"];
 
@@ -1227,6 +1339,7 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
         }];
 #endif
     } else {
+        [self maybeShowCompletionNotificationForTask:taskConfig];
 #ifdef RCT_NEW_ARCH_ENABLED
         [self safeEmitEvent:@"onDownloadComplete" value:@{
             @"id": taskConfig.id,
@@ -1243,6 +1356,78 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
         }];
 #endif
     }
+}
+
+- (NSDictionary *)metadataDictionaryForTask:(RNBGDTaskConfig *)taskConfig {
+    if (taskConfig.metadata == nil || taskConfig.metadata.length == 0) {
+        return @{};
+    }
+
+    NSData *metadataData = [taskConfig.metadata dataUsingEncoding:NSUTF8StringEncoding];
+    if (metadataData == nil) {
+        return @{};
+    }
+
+    NSError *error = nil;
+    id metadata = [NSJSONSerialization JSONObjectWithData:metadataData options:0 error:&error];
+    if (error != nil || ![metadata isKindOfClass:[NSDictionary class]]) {
+        return @{};
+    }
+
+    return (NSDictionary *)metadata;
+}
+
+- (BOOL)shouldShowCompletionNotification:(NSDictionary *)metadata {
+    NSString *showValue = metadata[@"showCompletionNotification"];
+    return [showValue isKindOfClass:[NSString class]] && [showValue isEqualToString:@"true"];
+}
+
+- (void)maybeShowCompletionNotificationForTask:(RNBGDTaskConfig *)taskConfig {
+    NSDictionary *metadata = [self metadataDictionaryForTask:taskConfig];
+    if (![self shouldShowCompletionNotification:metadata]) {
+        return;
+    }
+
+    NSString *title = metadata[@"completionNotificationTitle"];
+    if (![title isKindOfClass:[NSString class]] || title.length == 0) {
+        NSString *fallbackTitle = metadata[@"title"];
+        title = ([fallbackTitle isKindOfClass:[NSString class]] && fallbackTitle.length > 0)
+            ? fallbackTitle
+            : taskConfig.id;
+    }
+
+    NSString *description = metadata[@"completionNotificationDescription"];
+    if (![description isKindOfClass:[NSString class]] || description.length == 0) {
+        description = @"Download complete";
+    }
+
+    NSString *link = metadata[@"completionNotificationLink"];
+    NSDictionary *userInfo = @{
+        kRNBGDCompletionNotificationMarkerKey: @YES,
+        kRNBGDCompletionNotificationTaskIdKey: taskConfig.id ?: @"",
+        kRNBGDCompletionNotificationLinkKey: ([link isKindOfClass:[NSString class]] && link.length > 0) ? link : @""
+    };
+
+    UNMutableNotificationContent *content = [[UNMutableNotificationContent alloc] init];
+    content.title = title;
+    content.body = description;
+    content.sound = UNNotificationSound.defaultSound;
+    content.userInfo = userInfo;
+
+    UNTimeIntervalNotificationTrigger *trigger =
+        [UNTimeIntervalNotificationTrigger triggerWithTimeInterval:1 repeats:NO];
+    NSString *requestIdentifier =
+        [NSString stringWithFormat:@"rnbgd-download-complete-%@", taskConfig.id ?: NSUUID.UUID.UUIDString];
+    UNNotificationRequest *request =
+        [UNNotificationRequest requestWithIdentifier:requestIdentifier content:content trigger:trigger];
+
+    [[UNUserNotificationCenter currentNotificationCenter] addNotificationRequest:request
+                                                           withCompletionHandler:^(NSError * _Nullable error) {
+        if (error != nil) {
+            [self sendDebugLog:[NSString stringWithFormat:@"completion notification scheduling failed: %@", error.localizedDescription]
+                        taskId:taskConfig.id];
+        }
+    }];
 }
 
 - (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)downloadTask didResumeAtOffset:(int64_t)fileOffset expectedbytesTotal:(int64_t)expectedbytesTotal {
