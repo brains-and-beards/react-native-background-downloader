@@ -260,8 +260,14 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   fun getConstants(): Map<String, Any>? {
     val constants = mutableMapOf<String, Any>()
 
-    val externalFilesDir = reactContext.getExternalFilesDir(null)
-    constants["documents"] = externalFilesDir?.absolutePath ?: reactContext.filesDir.absolutePath
+    val androidDownloadManagerDir = reactContext.getExternalFilesDir(null)
+
+    // Use internal storage (filesDir) for consistency with iOS and to avoid
+    // issues with external storage paths on some devices
+    constants["documents"] = reactContext.filesDir.absolutePath
+    androidDownloadManagerDir?.absolutePath?.let {
+      constants["androidDownloadManager"] = it
+    }
 
     constants["TaskRunning"] = DownloadConstants.TASK_RUNNING
     constants["TaskSuspended"] = DownloadConstants.TASK_SUSPENDED

@@ -31,6 +31,7 @@ const mockModule = {
     TaskCanceling: 2,
     TaskCompleted: 3,
     getConstants: jest.fn().mockReturnValue({
+        androidDownloadManager: '/tmp/android-download-manager',
         documents: '/tmp/documents',
         TaskRunning: 0,
         TaskSuspended: 1,
@@ -85,6 +86,7 @@ const mockModule = {
         return Promise.resolve(foundDownloads);
     }),
     completeHandler: jest.fn(),
+    androidDownloadManager: '/tmp/android-download-manager',
     documents: '/tmp/documents',
     // Event emitter methods for new architecture - store callbacks
     onDownloadBegin: jest.fn().mockImplementation((callback) => {
