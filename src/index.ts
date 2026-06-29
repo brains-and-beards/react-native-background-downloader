@@ -10,6 +10,7 @@ type RNBackgroundDownloaderModule = Spec & {
   TaskSuspended: number
   TaskCanceling: number
   TaskCompleted: number
+  androidDownloadManager?: string
   documents: string
 }
 
@@ -646,6 +647,9 @@ export function createUploadTask ({
 export const directories = {
   get documents () {
     return ensureNativeModuleInitialized().documents
+  },
+  get androidDownloadManager () {
+    return ensureNativeModuleInitialized().androidDownloadManager
   },
 }
 

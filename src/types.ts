@@ -181,6 +181,7 @@ export type Download = (options: DownloadOption) => DownloadTask
 export type CompleteHandler = (id: string) => void
 
 export interface Directories {
+  androidDownloadManager?: string
   documents: string
 }
 

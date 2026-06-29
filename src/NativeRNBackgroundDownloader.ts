@@ -59,6 +59,7 @@ export type UploadFailedEvent = {
 export interface Spec extends TurboModule {
   // Constants exported to JavaScript
   getConstants(): {
+    androidDownloadManager?: string
     documents: string
     TaskRunning: number
     TaskSuspended: number
