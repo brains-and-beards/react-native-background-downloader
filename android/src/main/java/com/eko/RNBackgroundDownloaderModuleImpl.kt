@@ -419,12 +419,12 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
                 }
 
                 if (localUri != null) {
-                  // Prevent memory leaks from MediaScanner.
-                  // Download successful, clean task after media scanning.
                   val paths = arrayOf(localUri)
                   MediaScannerConnection.scanFile(context, paths, null) { _, _ ->
-                    synchronized(sharedLock) {
-                      cleanupDownloadState(config.id, downloadId)
+                    if (status != DownloadManager.STATUS_SUCCESSFUL) {
+                      synchronized(sharedLock) {
+                        cleanupDownloadState(config.id, downloadId)
+                      }
                     }
                   }
                 } else {
@@ -995,9 +995,14 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     }
 
     try {
-      // Currently this method doesn't have any implementation on Android
-      // as completion handlers are handled differently than iOS.
-      // This defensive structure ensures Firebase Performance compatibility.
+      synchronized(sharedLock) {
+        val downloadId = configIdToDownloadId[configId] ?: return
+
+        downloader.downloadManager.remove(downloadId)
+
+        cleanupDownloadState(configId, downloadId)
+      }
+
       logD(NAME, "completeHandler executed successfully for configId: $configId")
 
     } catch (e: Exception) {
