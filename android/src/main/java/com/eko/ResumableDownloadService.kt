@@ -425,6 +425,8 @@ class ResumableDownloadService : Service() {
       RNBackgroundDownloaderModuleImpl.logD(TAG, "No active downloads, stopping service")
       releaseWakeLock()
       stopForeground(STOP_FOREGROUND_REMOVE)
+      (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+        .cancel(DownloadConstants.NOTIFICATION_ID)
       stopSelf()
     } else {
       RNBackgroundDownloaderModuleImpl.logD(TAG, "Service has active downloads, keeping alive")
