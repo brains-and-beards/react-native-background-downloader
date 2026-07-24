@@ -7,12 +7,16 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.eko.utils.StorageManager
 import org.json.JSONObject
+import java.io.File
 
 class DownloadCompletionNotificationReceiver : BroadcastReceiver() {
 
@@ -58,6 +62,19 @@ class DownloadCompletionNotificationReceiver : BroadcastReceiver() {
       }
     }
 
+    val pendingResult = goAsync()
+    val applicationContext = context.applicationContext
+
+    Thread {
+      try {
+        showCompletionNotification(applicationContext, config, metadata)
+      } finally {
+        pendingResult.finish()
+      }
+    }.start()
+  }
+
+  private fun showCompletionNotification(context: Context, config: RNBGDTaskConfig, metadata: JSONObject) {
     createCompletionNotificationChannel(context)
 
     val title = metadata.optString("completionNotificationTitle").ifEmpty {
@@ -70,6 +87,11 @@ class DownloadCompletionNotificationReceiver : BroadcastReceiver() {
     val completionNotificationLink = metadata.optString("completionNotificationLink").ifEmpty {
       null
     }
+
+    val thumbnailUrl = metadata.optString("completionNotificationThumbnail").ifEmpty {
+      null
+    }
+    val largeIcon = loadThumbnailBitmap(thumbnailUrl)
 
     val launchIntent = completionNotificationLink
       ?.let { link ->
@@ -106,7 +128,20 @@ class DownloadCompletionNotificationReceiver : BroadcastReceiver() {
       .setSmallIcon(android.R.drawable.stat_sys_download_done)
       .setContentTitle(title)
       .setContentText(description)
-      .setStyle(NotificationCompat.BigTextStyle().bigText(description))
+      .apply {
+        if (largeIcon != null) {
+          setLargeIcon(largeIcon)
+          setStyle(
+            NotificationCompat.BigPictureStyle()
+              .bigPicture(largeIcon)
+              .bigLargeIcon(null as Bitmap?)
+              .setBigContentTitle(title)
+              .setSummaryText(description)
+          )
+        } else {
+          setStyle(NotificationCompat.BigTextStyle().bigText(description))
+        }
+      }
       .setPriority(NotificationCompat.PRIORITY_HIGH)
       .setDefaults(NotificationCompat.DEFAULT_ALL)
       .setAutoCancel(true)
@@ -124,6 +159,8 @@ class DownloadCompletionNotificationReceiver : BroadcastReceiver() {
       (config.id.hashCode() and 0x7fffffff) + 200000,
       notification
     )
+
+    largeIcon?.recycle()
   }
 
   private fun createCompletionNotificationChannel(context: Context) {
@@ -145,5 +182,38 @@ class DownloadCompletionNotificationReceiver : BroadcastReceiver() {
     }
 
     notificationManager.createNotificationChannel(channel)
+  }
+
+  private fun loadThumbnailBitmap(thumbnailUrl: String?): Bitmap? {
+    if (thumbnailUrl.isNullOrEmpty()) {
+      return null
+    }
+
+    return try {
+      val localPath = if (thumbnailUrl.startsWith("file://")) {
+        thumbnailUrl.removePrefix("file://")
+      } else {
+        thumbnailUrl
+      }
+
+      loadLocalThumbnail(localPath)
+    } catch (e: Exception) {
+      Log.e("DSCNotification", "Failed to load notification thumbnail: ${e.message}")
+      null
+    }
+  }
+
+  private fun loadLocalThumbnail(path: String): Bitmap? {
+    return try {
+      val file = File(path)
+      if (!file.exists() || !file.isFile) {
+        return null
+      }
+      file.inputStream().use { inputStream ->
+        BitmapFactory.decodeStream(inputStream)
+      }
+    } catch (e: Exception) {
+      null
+    }
   }
 }

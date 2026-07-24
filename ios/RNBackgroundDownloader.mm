@@ -1414,6 +1414,15 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
     content.sound = UNNotificationSound.defaultSound;
     content.userInfo = userInfo;
 
+    NSString *thumbnailUrl = metadata[@"completionNotificationThumbnail"];
+    if ([thumbnailUrl isKindOfClass:[NSString class]] && thumbnailUrl.length > 0) {
+        UNNotificationAttachment *attachment = [self loadNotificationThumbnailAttachment:thumbnailUrl
+                                                                                  taskId:taskConfig.id];
+        if (attachment != nil) {
+            content.attachments = @[attachment];
+        }
+    }
+
     UNTimeIntervalNotificationTrigger *trigger =
         [UNTimeIntervalNotificationTrigger triggerWithTimeInterval:1 repeats:NO];
     NSString *requestIdentifier =
@@ -1428,6 +1437,92 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
                         taskId:taskConfig.id];
         }
     }];
+}
+
+- (UNNotificationAttachment *)loadNotificationThumbnailAttachment:(NSString *)thumbnailUrl
+                                                            taskId:(NSString *)taskId {
+    if (thumbnailUrl == nil || thumbnailUrl.length == 0) {
+        return nil;
+    }
+
+    NSData *imageData = nil;
+
+    if ([thumbnailUrl hasPrefix:@"http://"] || [thumbnailUrl hasPrefix:@"https://"]) {
+        NSURL *imageUrl = [NSURL URLWithString:thumbnailUrl];
+        if (imageUrl == nil) {
+            return nil;
+        }
+        imageData = [self loadRemoteThumbnailSynchronously:imageUrl];
+    } else {
+        NSString *localPath = thumbnailUrl;
+        if ([localPath hasPrefix:@"file://"]) {
+            localPath = [localPath substringFromIndex:@"file://".length];
+        }
+        imageData = [NSData dataWithContentsOfFile:localPath options:0 error:nil];
+    }
+
+    if (imageData == nil || imageData.length == 0) {
+        [self sendDebugLog:@"notification thumbnail: no image data loaded" taskId:taskId];
+        return nil;
+    }
+
+    NSString *tempDir = NSTemporaryDirectory();
+    NSString *tempFilename = [NSString stringWithFormat:@"rnbgd_thumb_%@.png", taskId ?: NSUUID.UUID.UUIDString];
+    NSString *tempFilePath = [tempDir stringByAppendingPathComponent:tempFilename];
+
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    if ([fileManager fileExistsAtPath:tempFilePath]) {
+        [fileManager removeItemAtPath:tempFilePath error:nil];
+    }
+
+    NSError *writeError = nil;
+    [imageData writeToFile:tempFilePath options:NSDataWritingAtomic error:&writeError];
+    if (writeError != nil) {
+        [self sendDebugLog:[NSString stringWithFormat:@"notification thumbnail: failed to write temp file: %@", writeError.localizedDescription] taskId:taskId];
+        return nil;
+    }
+
+    NSURL *tempFileUrl = [NSURL fileURLWithPath:tempFilePath];
+    NSError *attachmentError = nil;
+    UNNotificationAttachment *attachment = [UNNotificationAttachment
+        attachmentWithIdentifier:@"rnbgd-thumbnail"
+                           URL:tempFileUrl
+                       options:nil
+                         error:&attachmentError];
+
+    if (attachmentError != nil) {
+        [self sendDebugLog:[NSString stringWithFormat:@"notification thumbnail: attachment creation failed: %@", attachmentError.localizedDescription] taskId:taskId];
+        return nil;
+    }
+
+    return attachment;
+}
+
+- (NSData *)loadRemoteThumbnailSynchronously:(NSURL *)imageUrl {
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:imageUrl];
+    request.timeoutInterval = 10.0;
+
+    dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+    __block NSData *result = nil;
+
+    NSURLSessionConfiguration *sessionConfig = [NSURLSessionConfiguration ephemeralSessionConfiguration];
+    sessionConfig.timeoutIntervalForRequest = 10.0;
+    sessionConfig.timeoutIntervalForResource = 10.0;
+    sessionConfig.URLCache = nil;
+    NSURLSession *session = [NSURLSession sessionWithConfiguration:sessionConfig];
+
+    NSURLSessionDataTask *task = [session dataTaskWithRequest:request
+                                           completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (error == nil && data != nil) {
+            result = data;
+        }
+        dispatch_semaphore_signal(semaphore);
+    }];
+    [task resume];
+    dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC));
+    [session invalidateAndCancel];
+
+    return result;
 }
 
 - (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)downloadTask didResumeAtOffset:(int64_t)fileOffset expectedbytesTotal:(int64_t)expectedbytesTotal {
